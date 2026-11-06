@@ -94,3 +94,9 @@ See COLLABORATION.md for the request flow, SSE synchronization, permissions, and
 The collaborative endpoints are implemented in kanban/collaboration.go; SQL lives in supabase/migrations.
 Run go test ./... and supabase/tests/email_invitations.sql (transactional rollback) for regression checks.
 Invitations target verified email addresses and appear in the recipient workspace. No outbound email is sent. Gin subscribes to Supabase Realtime Postgres Changes and relays SSE.
+
+## Production deployment
+
+Gin API: https://nextplay-kanban-api.vercel.app
+Frontend: https://nextplay-kanban-pi.vercel.app
+Vercel uses the Go framework preset in vercel.json. SSE streams end cleanly after 240 seconds and clients reconnect before the function deadline.

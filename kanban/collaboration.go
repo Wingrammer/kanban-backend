@@ -189,12 +189,19 @@ func (c *Collaboration) stream(ctx *gin.Context, token, board string) {
 	}
 	deadline := time.NewTimer(max(time.Until(expires)-15*time.Second, time.Second))
 	defer deadline.Stop()
+	// End cleanly before Vercel's 300-second function budget. Reconnection
+	// reloads a snapshot and opens a fresh provider subscription.
+	lifetime := time.NewTimer(240 * time.Second)
+	defer lifetime.Stop()
 	for {
 		select {
 		case <-ctx.Request.Context().Done():
 			return
 		case <-deadline.C:
 			send("session_expired")
+			return
+		case <-lifetime.C:
+			send("reconnect")
 			return
 		case <-ready:
 			send("ready")
