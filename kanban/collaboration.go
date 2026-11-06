@@ -43,6 +43,8 @@ func registerCollaborationRoutes(router *gin.Engine, service *TaskService) {
 	api.POST("/invitations/accept", handler("accept"))
 	api.POST("/boards/:board_id/tasks", handler("create"))
 	api.PATCH("/boards/:board_id/tasks/:task_id", handler("update"))
+	api.GET("/boards/:board_id/tasks/:task_id", handler("details"))
+	api.POST("/boards/:board_id/tasks/:task_id/comments", handler("comment"))
 }
 
 func readBoardInput(ctx *gin.Context) (map[string]interface{}, error) {
@@ -78,6 +80,9 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 		if id := ctx.Query("board"); id != "" {
 			args["p_board"] = id
 		}
+	} else if action == "details" {
+		rpc = "task_details"
+		args = map[string]interface{}{"p_board": board, "p_task": ctx.Param("task_id")}
 	} else {
 		input, err := readBoardInput(ctx)
 		if err != nil {
@@ -85,6 +90,9 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 			return
 		}
 		switch action {
+		case "comment":
+			rpc = "add_task_comment"
+			args = map[string]interface{}{"p_board": board, "p_task": ctx.Param("task_id"), "p_body": input["body"]}
 		case "members":
 			rpc = "invite_board_member"
 			args = map[string]interface{}{"p_board": board, "p_name": input["name"]}
@@ -110,7 +118,7 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 		boardError(ctx, err)
 		return
 	}
-	if action != "workspace" {
+	if action != "workspace" && action != "details" {
 		c.hub.publish(board)
 	}
 	ctx.Header("Cache-Control", "no-store")
