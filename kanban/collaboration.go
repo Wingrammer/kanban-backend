@@ -45,6 +45,7 @@ func registerCollaborationRoutes(router *gin.Engine, service *TaskService) {
 	api.PATCH("/boards/:board_id/tasks/:task_id", handler("update"))
 	api.GET("/boards/:board_id/tasks/:task_id", handler("details"))
 	api.POST("/boards/:board_id/tasks/:task_id/comments", handler("comment"))
+	api.POST("/boards/:board_id/labels", handler("label"))
 }
 
 func readBoardInput(ctx *gin.Context) (map[string]interface{}, error) {
@@ -90,6 +91,12 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 			return
 		}
 		switch action {
+		case "label":
+			rpc = "create_board_label"
+			args = map[string]interface{}{"p_board": board, "p_name": input["name"]}
+			if color, ok := input["color"]; ok {
+				args["p_color"] = color
+			}
 		case "comment":
 			rpc = "add_task_comment"
 			args = map[string]interface{}{"p_board": board, "p_task": ctx.Param("task_id"), "p_body": input["body"]}
