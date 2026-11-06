@@ -1,1 +1,26 @@
-real time kanban board with go (gin) and supabase
+Real-time kanban board with Go, Gin, and Supabase.
+
+Tasks are stored in Supabase Postgres. Row Level Security (RLS) is enabled by
+the migration in `supabase/migrations`; requests must include a Supabase user
+access token so PostgREST evaluates policies as that user.
+
+## API
+
+- `GET /users/:user_id/tasks` lists tasks for a user.
+- `POST /tasks` creates a task.
+- `GET /tasks/:task_id` gets a task by ID.
+
+Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in `.env`. Never use the
+Supabase secret key in this application; it bypasses RLS.
+
+Run the server with:
+
+```powershell
+go run .
+```
+
+Run tests with:
+
+```powershell
+go test ./...
+```
