@@ -86,3 +86,11 @@ Run go test ./... for endpoint validation, JWT forwarding, update behavior, and
 refresh handling against an in-process mock provider. To exercise the configured
 live Supabase project, set KANBAN_LIVE_TEST=1 and run go test ./... . The live
 test checks persistence, user isolation, and refresh, and removes its own task.
+
+## Collaboration
+
+See COLLABORATION.md for the request flow, SSE synchronization, permissions, and validation.
+The collaborative endpoints are implemented in kanban/collaboration.go; SQL lives in supabase/migrations.
+Run node tests/collaboration-e2e.mjs with Gin and Next.js running for disposable live integration checks.
+Invitations use expiring, single-use shareable links; email delivery is not configured.
+
