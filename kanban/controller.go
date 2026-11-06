@@ -16,6 +16,7 @@ func NewRouter(service *TaskService) *gin.Engine {
 	router := gin.Default()
 	controller := &controller{service: service}
 	registerSwaggerRoutes(router)
+	registerCollaborationRoutes(router, service)
 	router.POST("/auth/guest", controller.createGuestSession)
 	router.POST("/auth/refresh", controller.refreshSession)
 	router.POST("/auth/link", requireBearerToken, controller.linkGuestAccount)

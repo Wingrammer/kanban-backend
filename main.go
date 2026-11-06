@@ -45,6 +45,7 @@ func main() {
 	repository := kanban.NewSupabaseRepository(supabaseClient)
 	service := kanban.NewTaskService(repository)
 	service.SetAuthService(supabaseClient)
+	service.SetCollaboration(kanban.NewCollaboration(supabaseClient))
 	if err := kanban.NewRouter(service).Run(":" + cfg.Port); err != nil {
 		log.Fatal(err)
 	}

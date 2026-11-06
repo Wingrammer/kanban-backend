@@ -9,8 +9,9 @@ import (
 )
 
 type TaskService struct {
-	repository TaskRepository
-	auth       AuthService
+	collaboration *Collaboration
+	repository    TaskRepository
+	auth          AuthService
 }
 
 func NewTaskService(repository TaskRepository) *TaskService {
