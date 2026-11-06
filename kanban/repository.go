@@ -1,15 +1,9 @@
 package kanban
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
 
 	"github.com/Wingrammer/kanban-backend/supabase"
 )
@@ -19,6 +13,7 @@ type TaskRepository interface {
 	ListByUserID(ctx context.Context, userID string) ([]Task, error)
 	GetByID(ctx context.Context, id string) (Task, bool, error)
 	Create(ctx context.Context, task Task) (Task, error)
+	Update(ctx context.Context, id string, changes map[string]interface{}) (Task, bool, error)
 }
 
 var ErrUnauthorized = errors.New("missing Supabase access token")
@@ -32,22 +27,38 @@ func NewSupabaseRepository(client *supabase.Client) *SupabaseRepository {
 }
 
 func (r *SupabaseRepository) ListByUserID(ctx context.Context, userID string) ([]Task, error) {
-	query := url.Values{
-		"select":  []string{"*"},
-		"user_id": []string{"eq." + userID},
-		"order":   []string{"created_at.asc"},
+	token, err := accessTokenFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query, err := r.client.From("tasks", token)
+	if err != nil {
+		return nil, err
 	}
 	var tasks []Task
-	if err := r.do(ctx, http.MethodGet, query, nil, &tasks); err != nil {
+	if _, err := query.Select("*", "", false).
+		Eq("user_id", userID).
+		Order("created_at", nil).
+		ExecuteTo(&tasks); err != nil {
 		return nil, err
 	}
 	return tasks, nil
 }
 
 func (r *SupabaseRepository) GetByID(ctx context.Context, id string) (Task, bool, error) {
-	query := url.Values{"select": []string{"*"}, "id": []string{"eq." + id}, "limit": []string{"1"}}
+	token, err := accessTokenFromContext(ctx)
+	if err != nil {
+		return Task{}, false, err
+	}
+	query, err := r.client.From("tasks", token)
+	if err != nil {
+		return Task{}, false, err
+	}
 	var tasks []Task
-	if err := r.do(ctx, http.MethodGet, query, nil, &tasks); err != nil {
+	if _, err := query.Select("*", "", false).
+		Eq("id", id).
+		Limit(1, "").
+		ExecuteTo(&tasks); err != nil {
 		return Task{}, false, err
 	}
 	if len(tasks) == 0 {
@@ -57,12 +68,17 @@ func (r *SupabaseRepository) GetByID(ctx context.Context, id string) (Task, bool
 }
 
 func (r *SupabaseRepository) Create(ctx context.Context, task Task) (Task, error) {
-	body, err := json.Marshal(task)
+	token, err := accessTokenFromContext(ctx)
+	if err != nil {
+		return Task{}, err
+	}
+	query, err := r.client.From("tasks", token)
 	if err != nil {
 		return Task{}, err
 	}
 	var tasks []Task
-	if err := r.do(ctx, http.MethodPost, url.Values{"select": []string{"*"}}, bytes.NewReader(body), &tasks); err != nil {
+	if _, err := query.Insert(task, false, "", "representation", "").
+		ExecuteTo(&tasks); err != nil {
 		return Task{}, err
 	}
 	if len(tasks) == 0 {
@@ -71,23 +87,30 @@ func (r *SupabaseRepository) Create(ctx context.Context, task Task) (Task, error
 	return tasks[0], nil
 }
 
-func (r *SupabaseRepository) do(ctx context.Context, method string, query url.Values, body io.Reader, result interface{}) error {
+func accessTokenFromContext(ctx context.Context) (string, error) {
 	token, found := accessToken(ctx)
 	if !found {
-		return ErrUnauthorized
+		return "", ErrUnauthorized
 	}
-	request, err := r.client.NewRequest(ctx, method, query, body, token)
+	return token, nil
+}
+
+func (r *SupabaseRepository) Update(ctx context.Context, id string, changes map[string]interface{}) (Task, bool, error) {
+	token, err := accessTokenFromContext(ctx)
 	if err != nil {
-		return err
+		return Task{}, false, err
 	}
-	response, err := r.client.HTTPClient.Do(request)
+	query, err := r.client.From("tasks", token)
 	if err != nil {
-		return err
+		return Task{}, false, err
 	}
-	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("Supabase request failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
+	var tasks []Task
+	// Supabase evaluates the owner-only update policy using this user's JWT.
+	if _, err := query.Update(changes, "representation", "").Eq("id", id).ExecuteTo(&tasks); err != nil {
+		return Task{}, false, err
 	}
-	return json.NewDecoder(response.Body).Decode(result)
+	if len(tasks) == 0 {
+		return Task{}, false, nil
+	}
+	return tasks[0], true, nil
 }

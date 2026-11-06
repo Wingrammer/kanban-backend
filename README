@@ -3,24 +3,86 @@ Real-time kanban board with Go, Gin, and Supabase.
 Tasks are stored in Supabase Postgres. Row Level Security (RLS) is enabled by
 the migration in `supabase/migrations`; requests must include a Supabase user
 access token so PostgREST evaluates policies as that user.
+Database access uses the official
+[`supabase-community/supabase-go`](https://github.com/supabase-community/supabase-go)
+client and its PostgREST query builder.
 
 ## API
 
 - `GET /users/:user_id/tasks` lists tasks for a user.
 - `POST /tasks` creates a task.
 - `GET /tasks/:task_id` gets a task by ID.
+- `POST /auth/guest` creates an anonymous Supabase user and returns its session.
+- `POST /auth/refresh` refreshes an existing session.
+- `PATCH /tasks/:task_id` updates an owned task.
+- `POST /auth/link` links the current guest to an email and password.
+- `GET /swagger/index.html` opens Swagger UI.
 
-Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in `.env`. Never use the
-Supabase secret key in this application; it bypasses RLS.
+Open Swagger UI at [http://localhost:8080/swagger/index.html](http://localhost:8080/swagger/index.html).
+Click **Authorize** and enter `Bearer <Supabase user access token>` to test
+the protected endpoints.
 
-Run the server with:
+To start without an account, call `POST /auth/guest` without an
+`Authorization` header. Store the returned `access_token`, then use it as
+`Bearer <access_token>` for task requests. To make the guest permanent, call
+`POST /auth/link` with that bearer token and:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "a-secure-password"
+}
+```
+
+Enable anonymous sign-ins in Supabase Auth before using the guest endpoint.
+The task routes are intentionally token-protected because their RLS policies
+need the authenticated user's JWT; the guest-session route is public.
+
+## Next.js integration handoff
+
+Architecture: Browser -> Next.js session/proxy routes -> Gin -> Supabase.
+
+This repository owns Supabase clients, database access, business validation,
+authentication, token refresh, and all database migrations. Next.js owns the UI,
+an encrypted HttpOnly session cookie, and authenticated proxy routes. Supabase
+credentials do not belong in Next.js.
+
+- POST /auth/guest creates a guest only when Next.js has no session cookie.
+- POST /auth/refresh accepts { "refresh_token": "..." } from the trusted Next.js
+  server and returns the refreshed Supabase session. Invalid tokens return 401;
+  upstream service failures return 502. Never expose this response to browser JS.
+- POST /auth/link links the current bearer-authenticated guest to email/password.
+- PATCH /tasks/:task_id updates title, description, status, and priority. Unknown
+  fields (including user_id) and invalid values are rejected. Database requests
+  use the caller's JWT; Supabase RLS limits updates to that user's own tasks.
+
+Next.js forwards task requests with Authorization: Bearer <access_token>,
+refreshes before expiry, and stores rotated tokens in its encrypted cookie.
+Never replace a failed session with a new guest automatically.
+
+Configure SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in this repository's .env.
+Enable Supabase anonymous sign-ins. Apply migrations from supabase/migrations
+in filename order using the Supabase SQL editor or migration tooling. The migrations create the tasks table, enforce owner-only RLS policies, and
+add authenticated-role grants and a lookup index.
+Never use a secret/service-role key to handle user task requests.
+
+Frontend configuration consists only of KANBAN_BACKEND_URL and SESSION_SECRET.
+After changing backend routes, restart Gin. Swagger documents the update and
+refresh routes at /swagger/index.html.
+
+## Run
 
 ```powershell
 go run .
 ```
 
-Run tests with:
-
 ```powershell
 go test ./...
 ```
+
+## Integration tests
+
+Run go test ./... for endpoint validation, JWT forwarding, update behavior, and
+refresh handling against an in-process mock provider. To exercise the configured
+live Supabase project, set KANBAN_LIVE_TEST=1 and run go test ./... . The live
+test checks persistence, user isolation, and refresh, and removes its own task.

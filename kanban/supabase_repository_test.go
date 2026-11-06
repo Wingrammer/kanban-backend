@@ -17,7 +17,7 @@ func TestSupabaseRepositoryUsesCallerTokenAndRLSFilter(t *testing.T) {
 		if request.Header.Get("apikey") != "publishable-key" {
 			t.Errorf("expected publishable key header")
 		}
-		if request.Header.Get("Authorization") != "Bearer user-token" {
+		if request.Header.Get("Authorization") != bearerHeader("user-token") {
 			t.Errorf("expected caller token authorization")
 		}
 		if request.URL.Query().Get("user_id") != "eq.user-1" {

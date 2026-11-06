@@ -42,6 +42,22 @@ func (r *testRepository) Create(_ context.Context, task Task) (Task, error) {
 	return task, nil
 }
 
+func (r *testRepository) Update(_ context.Context, id string, changes map[string]interface{}) (Task, bool, error) {
+	for i := range r.tasks {
+		if r.tasks[i].ID != id {
+			continue
+		}
+		if v, ok := changes["status"].(string); ok {
+			r.tasks[i].Status = v
+		}
+		if v, ok := changes["title"].(string); ok {
+			r.tasks[i].Title = v
+		}
+		return r.tasks[i], true, nil
+	}
+	return Task{}, false, nil
+}
+
 func testRouter() *gin.Engine {
 	repository := &testRepository{tasks: []Task{
 		{ID: "1", Title: "Task 1", Status: "pending", UserID: "user1"},
@@ -53,7 +69,7 @@ func testRouter() *gin.Engine {
 func TestGetTasksByUser(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/users/user1/tasks", nil)
-	request.Header.Set("Authorization", "Bearer test-token")
+	request.Header.Set("Authorization", bearerHeader("test-token"))
 
 	testRouter().ServeHTTP(recorder, request)
 
@@ -71,7 +87,7 @@ func TestGetTasksByUser(t *testing.T) {
 func TestGetTaskByIDNotFound(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/tasks/missing", nil)
-	request.Header.Set("Authorization", "Bearer test-token")
+	request.Header.Set("Authorization", bearerHeader("test-token"))
 
 	testRouter().ServeHTTP(recorder, request)
 
@@ -84,7 +100,7 @@ func TestPostTaskSetsCreatedAt(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"id":"3","title":"New task","user_id":"user1"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer test-token")
+	request.Header.Set("Authorization", bearerHeader("test-token"))
 
 	testRouter().ServeHTTP(recorder, request)
 
