@@ -46,6 +46,7 @@ func registerCollaborationRoutes(router *gin.Engine, service *TaskService) {
 	api.GET("/boards/:board_id/tasks/:task_id", handler("details"))
 	api.POST("/boards/:board_id/tasks/:task_id/comments", handler("comment"))
 	api.POST("/boards/:board_id/labels", handler("label"))
+	api.DELETE("/boards/:board_id", handler("delete"))
 }
 
 func readBoardInput(ctx *gin.Context) (map[string]interface{}, error) {
@@ -91,6 +92,9 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 			return
 		}
 		switch action {
+		case "delete":
+			rpc = "delete_owned_board"
+			args = map[string]interface{}{"p_board": board}
 		case "label":
 			rpc = "create_board_label"
 			args = map[string]interface{}{"p_board": board, "p_name": input["name"]}
