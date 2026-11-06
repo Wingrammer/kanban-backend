@@ -219,8 +219,10 @@ func (c *Collaboration) stream(ctx *gin.Context, token, board string) {
 				var failure *supabase.RPCError
 				if errors.As(err, &failure) && failure.Status == 401 {
 					send("session_expired")
-				} else {
+				} else if errors.As(err, &failure) && failure.Status == 403 {
 					send("access_changed")
+				} else {
+					send("stream_error")
 				}
 				return
 			}
