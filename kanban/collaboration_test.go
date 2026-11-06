@@ -11,22 +11,6 @@ import (
 	"github.com/Wingrammer/kanban-backend/supabase"
 )
 
-func TestBoardHubScopesSubscribersAndCoalescesEvents(t *testing.T) {
-	hub := &boardHub{boards: make(map[string]map[chan struct{}]bool)}
-	first, unsubscribe := hub.subscribe("first")
-	defer unsubscribe()
-	other, unsubscribeOther := hub.subscribe("other")
-	defer unsubscribeOther()
-	hub.publish("first")
-	hub.publish("first")
-	if len(first) != 1 {
-		t.Fatal("events should coalesce for a slow subscriber")
-	}
-	if len(other) != 0 {
-		t.Fatal("event leaked into another board")
-	}
-}
-
 func TestCollaborationUsesCallerTokenAndTypedRPCArguments(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != bearerHeader("caller-jwt") {
@@ -78,8 +62,5 @@ func TestStreamRejectsUnauthorizedBoardBeforeSendingEvents(t *testing.T) {
 	NewRouter(service).ServeHTTP(recorder, request)
 	if recorder.Code != 403 || strings.Contains(recorder.Body.String(), "event:") {
 		t.Fatal("unauthorized SSE subscription was accepted")
-	}
-	if len(service.collaboration.hub.boards) != 0 {
-		t.Fatal("unauthorized listener was registered")
 	}
 }

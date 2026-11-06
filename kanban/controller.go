@@ -127,7 +127,7 @@ func (c *controller) createGuestSession(ctx *gin.Context) {
 func (c *controller) linkGuestAccount(ctx *gin.Context) {
 	var request struct {
 		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required,min=6"`
+		Password string `json:"password"`
 	}
 	if err := ctx.ShouldBindJSON(&request); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

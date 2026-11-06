@@ -15,7 +15,7 @@ client and its PostgREST query builder.
 - `POST /auth/guest` creates an anonymous Supabase user and returns its session.
 - `POST /auth/refresh` refreshes an existing session.
 - `PATCH /tasks/:task_id` updates an owned task.
-- `POST /auth/link` links the current guest to an email and password.
+- `POST /auth/link` requests email confirmation for the current guest.
 - `GET /swagger/index.html` opens Swagger UI.
 
 Open Swagger UI at [http://localhost:8080/swagger/index.html](http://localhost:8080/swagger/index.html).
@@ -24,15 +24,16 @@ the protected endpoints.
 
 To start without an account, call `POST /auth/guest` without an
 `Authorization` header. Store the returned `access_token`, then use it as
-`Bearer <access_token>` for task requests. To make the guest permanent, call
+`Bearer <access_token>` for task requests. To start saving the guest, call
 `POST /auth/link` with that bearer token and:
 
 ```json
 {
-  "email": "user@example.com",
-  "password": "a-secure-password"
+  "email": "user@example.com"
 }
 ```
+
+After email confirmation, POST /auth/password with { "password": "..." } to set a password. GET /auth/account returns current account state. POST /auth/login signs in an existing account.
 
 Enable anonymous sign-ins in Supabase Auth before using the guest endpoint.
 The task routes are intentionally token-protected because their RLS policies
@@ -91,6 +92,5 @@ test checks persistence, user isolation, and refresh, and removes its own task.
 
 See COLLABORATION.md for the request flow, SSE synchronization, permissions, and validation.
 The collaborative endpoints are implemented in kanban/collaboration.go; SQL lives in supabase/migrations.
-Run node tests/collaboration-e2e.mjs with Gin and Next.js running for disposable live integration checks.
-Invitations use expiring, single-use shareable links; email delivery is not configured.
-
+Run go test ./... and supabase/tests/email_invitations.sql (transactional rollback) for regression checks.
+Invitations target verified email addresses and appear in the recipient workspace. No outbound email is sent. Gin subscribes to Supabase Realtime Postgres Changes and relays SSE.

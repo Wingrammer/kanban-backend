@@ -78,18 +78,16 @@ func (c *Client) CreateAnonymousSession(ctx context.Context) (types.Session, err
 }
 
 func (c *Client) LinkAnonymousAccount(ctx context.Context, accessToken, email, password string) (types.User, error) {
-	client, err := supabasego.NewClient(c.url, c.key, &supabasego.ClientOptions{})
+	// Supabase requires email verification before an anonymous user sets a password.
+	// Never persist the proposed password while waiting for email confirmation.
+	response, err := c.AuthUser(ctx, accessToken, map[string]interface{}{"email": email})
 	if err != nil {
 		return types.User{}, err
 	}
-	response, err := client.Auth.WithToken(accessToken).UpdateUser(types.UpdateUserRequest{
-		Email:    email,
-		Password: &password,
-	})
-	if err != nil {
-		return types.User{}, err
-	}
-	return response.User, nil
+	encoded, _ := json.Marshal(response)
+	var user types.User
+	err = json.Unmarshal(encoded, &user)
+	return user, err
 }
 
 var ErrInvalidRefresh = errors.New("invalid refresh token")

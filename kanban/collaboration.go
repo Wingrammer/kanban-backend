@@ -1,6 +1,7 @@
 package kanban
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -8,7 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
+
 	"time"
 
 	"github.com/Wingrammer/kanban-backend/supabase"
@@ -18,11 +19,10 @@ import (
 // Collaboration keeps provider access and board-scoped realtime inside Gin.
 type Collaboration struct {
 	client *supabase.Client
-	hub    *boardHub
 }
 
 func NewCollaboration(client *supabase.Client) *Collaboration {
-	return &Collaboration{client: client, hub: &boardHub{boards: make(map[string]map[chan struct{}]bool)}}
+	return &Collaboration{client: client}
 }
 func (s *TaskService) SetCollaboration(value *Collaboration) { s.collaboration = value }
 
@@ -38,9 +38,15 @@ func registerCollaborationRoutes(router *gin.Engine, service *TaskService) {
 		}
 	}
 	api.GET("/workspace", handler("workspace"))
+	api.GET("/auth/account", handler("account"))
+	api.POST("/auth/password", handler("password"))
+	router.POST("/auth/session", handler("session"))
+	router.POST("/auth/login", handler("login"))
 	api.GET("/boards/:board_id/events", handler("events"))
 	api.POST("/boards/:board_id/members", handler("members"))
 	api.POST("/invitations/accept", handler("accept"))
+	api.GET("/invitations", handler("invitations"))
+	api.POST("/invitations/respond", handler("respond"))
 	api.POST("/boards/:board_id/tasks", handler("create"))
 	api.PATCH("/boards/:board_id/tasks/:task_id", handler("update"))
 	api.GET("/boards/:board_id/tasks/:task_id", handler("details"))
@@ -70,6 +76,10 @@ func boardError(ctx *gin.Context, err error) {
 	ctx.JSON(502, gin.H{"error": "The board service is unavailable. Please try again."})
 }
 func (c *Collaboration) handle(ctx *gin.Context, action string) {
+	if action == "account" || action == "password" || action == "session" || action == "login" {
+		c.account(ctx, action)
+		return
+	}
 	token, _ := accessToken(ctx.Request.Context())
 	board := ctx.Param("board_id")
 	if action == "events" {
@@ -82,6 +92,8 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 		if id := ctx.Query("board"); id != "" {
 			args["p_board"] = id
 		}
+	} else if action == "invitations" {
+		rpc = "my_board_invitations"
 	} else if action == "details" {
 		rpc = "task_details"
 		args = map[string]interface{}{"p_board": board, "p_task": ctx.Param("task_id")}
@@ -92,6 +104,9 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 			return
 		}
 		switch action {
+		case "respond":
+			rpc = "respond_board_invitation"
+			args = map[string]interface{}{"p_invitation": input["invitation_id"], "p_accept": input["accept"]}
 		case "delete":
 			rpc = "delete_owned_board"
 			args = map[string]interface{}{"p_board": board}
@@ -107,6 +122,7 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 		case "members":
 			rpc = "invite_board_member"
 			args = map[string]interface{}{"p_board": board, "p_name": input["name"]}
+			args["p_email"] = input["email"]
 			if color, ok := input["color"]; ok {
 				args["p_color"] = color
 			}
@@ -129,45 +145,9 @@ func (c *Collaboration) handle(ctx *gin.Context, action string) {
 		boardError(ctx, err)
 		return
 	}
-	if action != "workspace" && action != "details" {
-		c.hub.publish(board)
-	}
+
 	ctx.Header("Cache-Control", "no-store")
 	ctx.Data(200, "application/json", result)
-}
-
-// Slow subscribers only need one pending invalidation, not an unbounded event queue.
-type boardHub struct {
-	mu     sync.Mutex
-	boards map[string]map[chan struct{}]bool
-}
-
-func (h *boardHub) subscribe(board string) (chan struct{}, func()) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.boards[board] == nil {
-		h.boards[board] = make(map[chan struct{}]bool)
-	}
-	events := make(chan struct{}, 1)
-	h.boards[board][events] = true
-	return events, func() {
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		delete(h.boards[board], events)
-		if len(h.boards[board]) == 0 {
-			delete(h.boards, board)
-		}
-	}
-}
-func (h *boardHub) publish(board string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for listener := range h.boards[board] {
-		select {
-		case listener <- struct{}{}:
-		default:
-		}
-	}
 }
 
 func (c *Collaboration) stream(ctx *gin.Context, token, board string) {
@@ -177,8 +157,7 @@ func (c *Collaboration) stream(ctx *gin.Context, token, board string) {
 		boardError(ctx, err)
 		return
 	}
-	events, unsubscribe := c.hub.subscribe(board)
-	defer unsubscribe()
+
 	ctx.Header("Content-Type", "text/event-stream")
 	ctx.Header("Cache-Control", "no-store")
 	ctx.Header("X-Accel-Buffering", "no")
@@ -186,8 +165,14 @@ func (c *Collaboration) stream(ctx *gin.Context, token, board string) {
 		_, _ = fmt.Fprintf(ctx.Writer, "event: %s\ndata: {}\n\n", event)
 		ctx.Writer.Flush()
 	}
-	send("ready")
-	poll := time.NewTicker(5 * time.Second)
+	// Supabase owns change detection. SSE is only Gin's transport to the browser.
+	streamContext, cancel := context.WithCancel(ctx.Request.Context())
+	defer cancel()
+	ready := make(chan struct{}, 1)
+	changed := make(chan struct{}, 1)
+	failed := make(chan error, 1)
+	go func() { failed <- c.client.SubscribeBoard(streamContext, token, board, ready, changed) }()
+	poll := time.NewTicker(30 * time.Second)
 	defer poll.Stop()
 	// A verified JWT's expiry only controls stream lifetime; the database decides access.
 	expires := time.Now().Add(time.Hour)
@@ -211,8 +196,13 @@ func (c *Collaboration) stream(ctx *gin.Context, token, board string) {
 		case <-deadline.C:
 			send("session_expired")
 			return
-		case <-events:
+		case <-ready:
+			send("ready")
+		case <-changed:
 			send("board_changed")
+		case <-failed:
+			send("stream_error")
+			return
 		case <-poll.C:
 			var next int64
 			if err := c.client.RPC(ctx.Request.Context(), token, "board_revision", map[string]string{"p_board": board}, &next); err != nil {
